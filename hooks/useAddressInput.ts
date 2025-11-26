@@ -12,8 +12,8 @@ interface UseAddressInputReturn {
   suggestions: string[];
   showSuggestions: boolean;
   isLoading: boolean;
-  inputRef: React.RefObject<HTMLInputElement>;
-  suggestionsRef: React.RefObject<HTMLDivElement>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  suggestionsRef: React.RefObject<HTMLDivElement | null>;
   handleInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   handleSuggestionClick: (address: string) => void;
   handleKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
