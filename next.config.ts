@@ -1,8 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  outputFileTracingRoot: undefined,
+  devIndicators: false
 };
 
 export default nextConfig;
-
