@@ -23,7 +23,7 @@ export function useYandexMaps(): UseYandexMapsReturn {
       return;
     }
 
-    if (window.__YMAPS_READY__) {
+    if ((window as Window & { __YMAPS_READY__?: boolean }).__YMAPS_READY__) {
       const checkReady = setInterval(() => {
         if (window.ymaps && window.ymaps.ready) {
           clearInterval(checkReady);
