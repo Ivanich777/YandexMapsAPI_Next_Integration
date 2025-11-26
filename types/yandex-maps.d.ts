@@ -72,6 +72,9 @@ declare namespace ymaps {
   function Polygon(geometry: number[][][], options?: PolygonOptions): Polygon;
   function Polyline(geometry: number[][], options?: PolylineOptions): Polyline;
   function GeoObjectCollection(): GeoObjectCollection;
+  function geocode(query: string, options?: GeocodeOptions): Promise<GeocodeResult>;
+  function suggest(query: string, options?: SuggestOptions): Promise<SuggestResult[]>;
+  function Placemark(geometry: number[], properties?: any, options?: PlacemarkOptions): Placemark;
 }
 
 interface MapOptions {
@@ -103,6 +106,49 @@ interface PolylineOptions {
   strokeWidth?: number;
   strokeOpacity?: number;
   cursor?: string;
+}
+
+interface GeocodeOptions {
+  boundedBy?: number[][];
+  strictBounds?: boolean;
+  results?: number;
+}
+
+interface GeocodeResult {
+  geoObjects: GeoObjectCollection;
+}
+
+interface SuggestOptions {
+  boundedBy?: number[][];
+  strictBounds?: boolean;
+  provider?: string;
+}
+
+interface SuggestResult {
+  value: string;
+  displayName: string;
+  [key: string]: any;
+}
+
+interface PlacemarkOptions {
+  iconLayout?: string;
+  iconImageHref?: string;
+  iconImageSize?: number[];
+  iconImageOffset?: number[];
+  preset?: string;
+  [key: string]: any;
+}
+
+interface Placemark extends GeoObject {
+  geometry: {
+    setCoordinates(coordinates: number[]): void;
+    getCoordinates(): number[];
+    getBounds(): number[][];
+  };
+  properties: {
+    set(key: string | object, value?: any): void;
+    get(key: string): any;
+  };
 }
 
 declare global {

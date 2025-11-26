@@ -1,41 +1,87 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { KAD_CENTER, KAD_COORDINATES } from '@/lib/kad-coordinates';
 import { DEFAULT_ZONE_OPTIONS, type DeliveryZoneOptions } from '@/lib/yandex-maps';
 import { useYandexMaps } from './useYandexMaps';
-import * as turf from '@turf/turf';
+import { createDeliveryZoneBuffer, checkPointInZone } from '@/lib/buffer-utils';
 
 interface UseMapOptions {
   center?: [number, number];
   zoom?: number;
   radiusKm: number;
   zoneOptions?: Partial<DeliveryZoneOptions>;
+  addressCoordinates?: [number, number] | null;
+  onZoneCheck?: (isInZone: boolean) => void;
 }
 
 interface UseMapReturn {
   mapRef: React.RefObject<HTMLDivElement | null>;
   isLoading: boolean;
   error: string | null;
+  isAddressInZone: boolean | null;
 }
 
-/**
- * Хук для управления картой и зоной доставки
- */
+const KAD_POLYLINE_OPTIONS = {
+  strokeColor: '#ff0000',
+  strokeWidth: 3,
+  strokeOpacity: 0.8,
+};
+
 export function useMap({
   center = KAD_CENTER,
-  zoom = 10,
+  zoom = 8,
   radiusKm,
   zoneOptions,
+  addressCoordinates,
+  onZoneCheck,
 }: UseMapOptions): UseMapReturn {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<ymaps.Map | null>(null);
   const kadPolylineRef = useRef<ymaps.Polyline | null>(null);
   const deliveryZoneRef = useRef<ymaps.Polygon | null>(null);
+  const addressPlacemarkRef = useRef<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isAddressInZone, setIsAddressInZone] = useState<boolean | null>(null);
 
   const { isReady, error: ymapsError } = useYandexMaps();
 
-  // Инициализация карты
+  const zoneOptionsMemo = useMemo(
+    () => ({ ...DEFAULT_ZONE_OPTIONS, ...zoneOptions }),
+    [zoneOptions]
+  );
+
+  const createKADPolyline = useCallback(
+    (map: any) => {
+      if (KAD_COORDINATES.length === 0) return null;
+
+      const polyline = new (window.ymaps as any).Polyline(
+        KAD_COORDINATES,
+        KAD_POLYLINE_OPTIONS
+      );
+      map.geoObjects.add(polyline);
+      return polyline;
+    },
+    []
+  );
+
+  const createDeliveryZone = useCallback(
+    (map: any, radius: number, options: DeliveryZoneOptions) => {
+      const polygonCoords = createDeliveryZoneBuffer(radius);
+      if (!polygonCoords) return null;
+
+      const polygon = new (window.ymaps as any).Polygon([polygonCoords], {
+        fillColor: options.fillColor,
+        fillOpacity: options.fillOpacity,
+        strokeColor: options.strokeColor,
+        strokeWidth: options.strokeWidth,
+      });
+
+      map.geoObjects.add(polygon);
+      return polygon;
+    },
+    []
+  );
+
   useEffect(() => {
     if (!isReady || !mapRef.current) {
       if (ymapsError) {
@@ -55,7 +101,6 @@ export function useMap({
       if (!mapRef.current || !window.ymaps) return;
 
       try {
-        // Создаем карту
         const map = new (window.ymaps as any).Map(mapRef.current, {
           center,
           zoom,
@@ -63,61 +108,15 @@ export function useMap({
 
         mapInstanceRef.current = map;
 
-        // Отображаем КАД линией (полилиния)
         if (KAD_COORDINATES.length > 0) {
-          const kadPolyline = new (window.ymaps as any).Polyline(
-            KAD_COORDINATES,
-            {
-              strokeColor: '#ff0000',
-              strokeWidth: 3,
-              strokeOpacity: 0.8,
-            }
-          );
-          map.geoObjects.add(kadPolyline);
-          kadPolylineRef.current = kadPolyline;
+          const polyline = createKADPolyline(map);
+          if (polyline) {
+            kadPolylineRef.current = polyline;
+          }
 
-          // Создаем буферную зону доставки вокруг КАДа
-          try {
-            // Конвертируем координаты КАДа в формат GeoJSON LineString
-            // Turf.js использует формат [долгота, широта]
-            const lineString = turf.lineString(
-              KAD_COORDINATES.map(coord => [coord[1], coord[0]]) // [lng, lat] для GeoJSON
-            );
-
-            // Создаем буферную зону (buffer принимает расстояние в километрах)
-            // Увеличиваем точность буфера с помощью параметра steps (больше точек = более точный буфер)
-            const buffer = turf.buffer(lineString, radiusKm, {
-              units: 'kilometers',
-              steps: 128 // Увеличиваем количество шагов для более точного буфера (по умолчанию 64)
-            });
-
-            if (!buffer || !buffer.geometry) {
-              throw new Error('Failed to create buffer zone');
-            }
-
-            // Извлекаем координаты полигона
-            const bufferCoordinates = (buffer.geometry as { type: string; coordinates: number[][][] }).coordinates[0];
-
-            // Конвертируем обратно в формат Яндекс Карт [широта, долгота]
-            const polygonCoords = bufferCoordinates.map((coord: number[]) => [coord[1], coord[0]]);
-
-            const options = { ...DEFAULT_ZONE_OPTIONS, ...zoneOptions };
-
-            // Создаем полигон зоны доставки
-            const deliveryZone = new (window.ymaps as any).Polygon(
-              [polygonCoords],
-              {
-                fillColor: options.fillColor,
-                fillOpacity: options.fillOpacity,
-                strokeColor: options.strokeColor,
-                strokeWidth: options.strokeWidth,
-              }
-            );
-
-            map.geoObjects.add(deliveryZone);
-            deliveryZoneRef.current = deliveryZone;
-          } catch (err) {
-            console.error('Error creating delivery zone:', err);
+          const zone = createDeliveryZone(map, radiusKm, zoneOptionsMemo);
+          if (zone) {
+            deliveryZoneRef.current = zone;
           }
         }
 
@@ -127,14 +126,15 @@ export function useMap({
         const errorMessage = err instanceof Error ? err.message : String(err);
         setError(`Ошибка при инициализации карты: ${errorMessage}`);
         setIsLoading(false);
-        console.error('Yandex Maps initialization error:', err);
       }
     };
 
     window.ymaps.ready(initializeMap);
 
-    // Очистка при размонтировании
     return () => {
+      if (addressPlacemarkRef.current && mapInstanceRef.current) {
+        mapInstanceRef.current.geoObjects.remove(addressPlacemarkRef.current);
+      }
       if (deliveryZoneRef.current && mapInstanceRef.current) {
         mapInstanceRef.current.geoObjects.remove(deliveryZoneRef.current);
       }
@@ -146,48 +146,83 @@ export function useMap({
         mapInstanceRef.current = null;
       }
     };
-  }, [isReady, center, zoom, ymapsError]);
+  }, [isReady, center, zoom, ymapsError, radiusKm, zoneOptionsMemo, createKADPolyline, createDeliveryZone]);
 
-  // Обновление зоны доставки при изменении радиуса
   useEffect(() => {
-    if (deliveryZoneRef.current && mapInstanceRef.current && KAD_COORDINATES.length > 0 && radiusKm > 0 && isReady) {
-      try {
-        // Пересоздаем буферную зону с новым радиусом
-        const lineString = turf.lineString(
-          KAD_COORDINATES.map(coord => [coord[1], coord[0]])
-        );
-        const buffer = turf.buffer(lineString, radiusKm, {
-          units: 'kilometers',
-          steps: 128 // Увеличиваем количество шагов для более точного буфера
-        });
+    if (
+      !deliveryZoneRef.current ||
+      !mapInstanceRef.current ||
+      KAD_COORDINATES.length === 0 ||
+      radiusKm <= 0 ||
+      !isReady
+    ) {
+      return;
+    }
 
-        if (!buffer || !buffer.geometry) {
-          console.error('Failed to create buffer zone');
-          return;
-        }
-
-        const bufferCoordinates = (buffer.geometry as { type: string; coordinates: number[][][] }).coordinates[0];
-        const polygonCoords = bufferCoordinates.map((coord: number[]) => [coord[1], coord[0]]);
-        deliveryZoneRef.current.geometry.setCoordinates([polygonCoords]);
-      } catch (err) {
-        console.error('Error updating delivery zone:', err);
-      }
+    const polygonCoords = createDeliveryZoneBuffer(radiusKm);
+    if (polygonCoords) {
+      deliveryZoneRef.current.geometry.setCoordinates([polygonCoords]);
     }
   }, [radiusKm, isReady]);
 
-  // Обновление опций зоны доставки
   useEffect(() => {
-    if (deliveryZoneRef.current && zoneOptions && isReady) {
-      const options = { ...DEFAULT_ZONE_OPTIONS, ...zoneOptions };
-      deliveryZoneRef.current.options.set({
-        fillColor: options.fillColor,
-        fillOpacity: options.fillOpacity,
-        strokeColor: options.strokeColor,
-        strokeWidth: options.strokeWidth,
-      });
+    if (!deliveryZoneRef.current || !zoneOptions || !isReady) {
+      return;
     }
-  }, [zoneOptions, isReady]);
 
-  return { mapRef, isLoading, error };
+    deliveryZoneRef.current.options.set({
+      fillColor: zoneOptionsMemo.fillColor,
+      fillOpacity: zoneOptionsMemo.fillOpacity,
+      strokeColor: zoneOptionsMemo.strokeColor,
+      strokeWidth: zoneOptionsMemo.strokeWidth,
+    });
+  }, [zoneOptions, isReady, zoneOptionsMemo]);
+
+  useEffect(() => {
+    if (!isReady || !mapInstanceRef.current || !window.ymaps) {
+      return;
+    }
+
+    if (addressPlacemarkRef.current && mapInstanceRef.current) {
+      mapInstanceRef.current.geoObjects.remove(addressPlacemarkRef.current);
+      addressPlacemarkRef.current = null;
+    }
+
+    if (!addressCoordinates) {
+      setIsAddressInZone(null);
+      onZoneCheck?.(false);
+      return;
+    }
+
+    try {
+      const isInZone = checkPointInZone(addressCoordinates, radiusKm);
+      setIsAddressInZone(isInZone);
+      onZoneCheck?.(isInZone);
+
+      const placemarkCoords: [number, number] = [
+        addressCoordinates[1],
+        addressCoordinates[0],
+      ];
+
+      const placemark = new (window.ymaps as any).Placemark(
+        placemarkCoords,
+        {
+          balloonContent: 'Выбранный адрес',
+        },
+        {
+          preset: isInZone
+            ? 'islands#greenCircleIcon'
+            : 'islands#redCircleIcon',
+        }
+      );
+
+      mapInstanceRef.current.geoObjects.add(placemark);
+      addressPlacemarkRef.current = placemark;
+      mapInstanceRef.current.setCenter(placemarkCoords);
+    } catch (err) {
+      // Silent error handling
+    }
+  }, [addressCoordinates, isReady, radiusKm, onZoneCheck]);
+
+  return { mapRef, isLoading, error, isAddressInZone };
 }
-

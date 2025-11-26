@@ -1,22 +1,29 @@
 'use client';
 
+import { memo } from 'react';
 import { type DeliveryZoneOptions } from '@/lib/yandex-maps';
 import { useMap } from '@/hooks/useMap';
 
 interface YandexMapProps {
   radiusKm: number;
   zoneOptions?: Partial<DeliveryZoneOptions>;
+  addressCoordinates?: [number, number] | null;
+  onZoneCheck?: (isInZone: boolean) => void;
   className?: string;
 }
 
-export default function YandexMap({
+function YandexMap({
   radiusKm,
   zoneOptions,
+  addressCoordinates,
+  onZoneCheck,
   className = '',
 }: YandexMapProps) {
   const { mapRef, isLoading, error } = useMap({
     radiusKm,
     zoneOptions,
+    addressCoordinates,
+    onZoneCheck,
   });
 
   return (
@@ -39,4 +46,6 @@ export default function YandexMap({
     </div>
   );
 }
+
+export default memo(YandexMap);
 

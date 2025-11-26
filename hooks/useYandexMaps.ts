@@ -6,19 +6,15 @@ interface UseYandexMapsReturn {
   error: string | null;
 }
 
-const CHECK_INTERVAL = 100; // мс
-const MAX_ATTEMPTS = 100; // 10 секунд
+const CHECK_INTERVAL = 100;
+const MAX_ATTEMPTS = 100;
 
-/**
- * Хук для проверки загрузки и готовности Яндекс Карт API
- */
 export function useYandexMaps(): UseYandexMapsReturn {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Если ymaps уже загружен и готов
     if (window.ymaps && window.ymaps.ready) {
       setIsLoaded(true);
       window.ymaps.ready(() => {
@@ -27,7 +23,6 @@ export function useYandexMaps(): UseYandexMapsReturn {
       return;
     }
 
-    // Если флаг готовности установлен, но ymaps еще не доступен
     if (window.__YMAPS_READY__) {
       const checkReady = setInterval(() => {
         if (window.ymaps && window.ymaps.ready) {
@@ -42,7 +37,6 @@ export function useYandexMaps(): UseYandexMapsReturn {
       return () => clearInterval(checkReady);
     }
 
-    // Ждем загрузки ymaps
     let attempts = 0;
 
     const checkYmaps = setInterval(() => {
